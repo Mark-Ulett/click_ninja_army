@@ -1,0 +1,37 @@
+{
+    "adType": "Product",
+    "slots": [
+        {
+            "adTag": "petco/no_edit_product_search/searchpage/product/product/desktop",
+            "adSize": "adSize1",
+            "adCount": 20
+        },
+        {
+            "adTag": "petco/summer-collection-bottom-banner-0/plp/display/300x250/desktop",
+            "adSize": "adSize2",
+            "adCount": 3
+        }
+    ],
+    "user": {
+        "publisherId": "PET67",
+        "customerId": null,
+        "guestId": "G-PET34567",
+        "networkIp": "String",
+        "searchKeyword": null,
+        "pageType": "String",
+        "pageCategoryIds": null,
+        "additionalProductFilters": null
+    },
+    "page": {
+        "currentUrl": "String",
+        "sourceUrl": "String"
+    },
+    "device": {
+        "deviceId": "String",
+        "userAgent": "String",
+        "language": "String",
+        "platform": "String",
+        "screenSize": "String"
+    },
+    "keyValues": null
+}

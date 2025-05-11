@@ -1,0 +1,13 @@
+{
+    "adItemId": 22637,
+    "adTag": "petco/rmn-3668-display/category/display/1244x90/desktop",
+    "adRequestId": "8c47a9fe-1b1b-49d2-aeab-60d44035891d", 
+    "creativeId": 21126,
+    "customerId": "customerId",
+    "displayedAt": "2023-07-11T10:01:00.080+00:00",
+    "clickedAt": "2023-07-11T10:02:00.080+00:00",
+    "payload": {
+        "sessionId": "my-session-id",
+        "sessionExpiry": "1905341811"
+    }
+}

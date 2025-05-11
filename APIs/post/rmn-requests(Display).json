@@ -1,0 +1,34 @@
+{
+    "adType": "Product",
+    "adItemId": "test_item_001",
+    "slots": [
+        {
+            "adTag": "petco/cp-creative-targeting-test/category/product/product/desktop",
+            "adSize": "adSize4",
+            "adCount": 40
+        }
+    ],
+    "user": {
+        "publisherId": "PET67",
+        "customerId": null,
+        "guestId": "G-PET34567",
+        "networkIp": "127.0.0.1",
+        "searchKeyword": null,
+        "pageType": "category",
+        "pageCategoryIds": [10049],
+        "additionalProductFilters": null
+    },
+    "page": {
+        "currentUrl": "https://www.petco.com/shop/en/petcostore/category/dog/dog-food",
+        "sourceUrl": "https://www.petco.com"
+    },
+    "device": {
+        "deviceId": "test-device-id",
+        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
+        "language": "en-US",
+        "platform": "macOS",
+        "screenSize": "1920x1080"
+    },
+    "keyValues": null,
+    "memoryToken": null
+}
