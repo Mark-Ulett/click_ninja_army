@@ -26,7 +26,7 @@ Example:
     ... )
     >>> strike = StrikeNinja(
     ...     operation_config=config,
-    ...     db_connection_string="postgresql://user:pass@localhost/db",
+    ...     db_connection_string="click_ninja.db",
     ...     worker_count=4
     ... )
     >>> strike.start()
@@ -43,8 +43,7 @@ from queue import Queue
 import requests
 from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor
-import psycopg2
-from psycopg2.extras import Json
+import sqlite3
 import statistics
 from collections import deque
 import queue
@@ -68,6 +67,9 @@ class OperationConfig:
         auth_token (str): Authentication token for API access
         publisher_id (str): Publisher identifier
         guest_id (str): Guest user identifier
+        ad_server_url (str): Base URL for ad server
+        ad_server_impressions_url (str): URL for impression tracking
+        ad_server_clicks_url (str): URL for click tracking
         timeout (int): Request timeout in seconds (default: 10)
         max_retries (int): Maximum number of retry attempts (default: 3)
         retry_delay (float): Delay between retries in seconds (default: 1.0)
@@ -84,6 +86,9 @@ class OperationConfig:
     auth_token: str
     publisher_id: str
     guest_id: str
+    ad_server_url: str = "https://dev.shyftcommerce.com/server"
+    ad_server_impressions_url: str = "https://dev.shyftcommerce.com/server/rmn-impressions"
+    ad_server_clicks_url: str = "https://dev.shyftcommerce.com/server/rmn-clicks"
     timeout: int = 10
     max_retries: int = 3
     retry_delay: float = 1.0
@@ -370,20 +375,19 @@ class WorkerPool:
 
 class OperationExecutor:
     """
-    Executes ad operations using request IDs.
+    Executes ad operations using the configured API endpoints.
     
     This class handles:
-    1. API communication
-    2. Request retries
+    1. Operation execution
+    2. Response processing
     3. Error handling
-    4. Response processing
+    4. Retry logic
     
     Attributes:
         config (OperationConfig): Operation configuration
         session (Session): HTTP session for making requests
     
     Example:
-        >>> config = OperationConfig(...)
         >>> executor = OperationExecutor(config)
         >>> success = executor.execute_operation("req123", "click")
     """
@@ -396,29 +400,24 @@ class OperationExecutor:
             config (OperationConfig): Operation configuration
         
         Example:
-            >>> config = OperationConfig(...)
             >>> executor = OperationExecutor(config)
         """
+        logger.info("Initializing OperationExecutor")
         self.config = config
         self.session = requests.Session()
         self.session.headers.update({
             "Authorization": f"Bearer {config.auth_token}",
             "Content-Type": "application/json"
         })
+        logger.debug("OperationExecutor initialized with API configuration")
 
     def execute_operation(self, request_id: str, operation_type: str) -> bool:
         """
-        Execute an operation for a given request ID.
-        
-        This method:
-        1. Makes the API request
-        2. Handles retries on failure
-        3. Processes the response
-        4. Returns success status
+        Execute an ad operation.
         
         Args:
-            request_id (str): ID of the request to operate on
-            operation_type (str): Type of operation to perform
+            request_id (str): Request identifier
+            operation_type (str): Type of operation (impression or click)
         
         Returns:
             bool: True if operation was successful
@@ -426,29 +425,46 @@ class OperationExecutor:
         Example:
             >>> success = executor.execute_operation("req123", "click")
         """
-        for attempt in range(self.config.max_retries):
-            try:
-                response = self.session.post(
-                    f"{self.config.base_url}/operations",
-                    json={
-                        "requestId": request_id,
-                        "operationType": operation_type,
-                        "user": {
-                            "publisherId": self.config.publisher_id,
-                            "guestId": self.config.guest_id
-                        }
-                    },
-                    timeout=self.config.timeout
-                )
-                response.raise_for_status()
-                return True
-
-            except requests.RequestException as e:
-                logger.error(f"Operation failed (attempt {attempt + 1}/{self.config.max_retries}): {e}")
-                if attempt < self.config.max_retries - 1:
-                    time.sleep(self.config.retry_delay)
-
-        return False
+        try:
+            logger.info(f"Executing {operation_type} operation for request {request_id}")
+            
+            # Determine endpoint based on operation type
+            if operation_type == 'impression':
+                endpoint = self.config.ad_server_impressions_url
+            elif operation_type == 'click':
+                endpoint = self.config.ad_server_clicks_url
+            else:
+                logger.error(f"Unsupported operation type: {operation_type}")
+                raise ValueError(f"Unsupported operation type: {operation_type}")
+            
+            # Create operation payload
+            payload = {
+                "requestId": request_id,
+                "user": {
+                    "publisherId": self.config.publisher_id if hasattr(self.config, 'publisher_id') else self.config.api.publisher_id,
+                    "guestId": self.config.guest_id if hasattr(self.config, 'guest_id') else self.config.api.guest_id
+                },
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            # Execute operation
+            logger.debug(f"Making API request to {endpoint}")
+            response = self.session.post(
+                endpoint,
+                json=payload,
+                timeout=self.config.timeout
+            )
+            response.raise_for_status()
+            
+            logger.info(f"Successfully executed {operation_type} operation for request {request_id}")
+            return True
+            
+        except requests.exceptions.RequestException as e:
+            logger.error(f"API request failed: {str(e)}")
+            raise
+        except Exception as e:
+            logger.error(f"Failed to execute operation: {str(e)}")
+            raise
 
 class StrikeNinja:
     """
@@ -464,12 +480,12 @@ class StrikeNinja:
     Attributes:
         operation_executor (OperationExecutor): Executes individual operations
         worker_pool (WorkerPool): Manages worker threads
-        db_conn: Database connection for operation logging
+        db_conn: SQLite database connection for operation logging
     
     Example:
         >>> strike = StrikeNinja(
         ...     operation_config=config,
-        ...     db_connection_string="postgresql://user:pass@localhost/db",
+        ...     db_connection_string="click_ninja.db",
         ...     worker_count=4
         ... )
         >>> strike.start()
@@ -487,19 +503,20 @@ class StrikeNinja:
         
         Args:
             operation_config (OperationConfig): Operation configuration
-            db_connection_string (str): Database connection string
+            db_connection_string (str): SQLite database path
             worker_count (int): Number of worker threads
         
         Example:
             >>> strike = StrikeNinja(
             ...     operation_config=config,
-            ...     db_connection_string="postgresql://user:pass@localhost/db",
+            ...     db_connection_string="click_ninja.db",
             ...     worker_count=4
             ... )
         """
         self.operation_executor = OperationExecutor(operation_config)
         self.worker_pool = WorkerPool(worker_count)
-        self.db_conn = psycopg2.connect(db_connection_string)
+        self.db_conn = sqlite3.connect(db_connection_string)
+        self.db_conn.row_factory = sqlite3.Row
         self._setup_database()
 
     def _setup_database(self):
@@ -515,16 +532,17 @@ class StrikeNinja:
             >>> strike = StrikeNinja(...)
             >>> # Database setup is automatic
         """
-        with self.db_conn.cursor() as cursor:
+        cursor = self.db_conn.cursor()
+        try:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS operation_log (
-                    id SERIAL PRIMARY KEY,
+                    id INTEGER PRIMARY KEY,
                     request_id TEXT NOT NULL,
                     operation_type TEXT NOT NULL,
                     status TEXT NOT NULL,
                     response_time FLOAT,
                     error_message TEXT,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
                 )
             """)
             
@@ -534,6 +552,8 @@ class StrikeNinja:
             """)
             
             self.db_conn.commit()
+        finally:
+            cursor.close()
 
     def start(self):
         """
@@ -636,14 +656,17 @@ class StrikeNinja:
             ... )
         """
         try:
-            with self.db_conn.cursor() as cursor:
+            cursor = self.db_conn.cursor()
+            try:
                 cursor.execute("""
                     INSERT INTO operation_log (
                         request_id, operation_type, status,
                         response_time, error_message
-                    ) VALUES (%s, %s, %s, %s, %s)
+                    ) VALUES (?, ?, ?, ?, ?)
                 """, (request_id, operation_type, status,
                       response_time, error_message))
                 self.db_conn.commit()
+            finally:
+                cursor.close()
         except Exception as e:
             logger.error(f"Error logging operation: {e}") 

@@ -101,58 +101,59 @@ class Database:
         """
         try:
             logger.info("Setting up database tables")
-            with self._conn.cursor() as cursor:
-                # Request pool table
-                logger.debug("Creating request_pool table")
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS request_pool (
-                        id INTEGER PRIMARY KEY,
-                        request_id TEXT UNIQUE NOT NULL,
-                        campaign_id TEXT NOT NULL,
-                        ad_item_id TEXT,
-                        ad_tag TEXT NOT NULL,
-                        ad_type TEXT NOT NULL,
-                        page_category_ids TEXT,
-                        status TEXT NOT NULL DEFAULT 'pending',
-                        priority INTEGER DEFAULT 0,
-                        retries INTEGER DEFAULT 0,
-                        last_attempt TIMESTAMP,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        CONSTRAINT valid_status CHECK (status IN ('pending', 'in_progress', 'completed', 'failed'))
-                    )
-                """)
-                logger.debug("Request pool table created/verified")
-                
-                # Operation log table
-                logger.debug("Creating operation_log table")
-                cursor.execute("""
-                    CREATE TABLE IF NOT EXISTS operation_log (
-                        id INTEGER PRIMARY KEY,
-                        request_id TEXT NOT NULL,
-                        operation_type TEXT NOT NULL,
-                        status TEXT NOT NULL,
-                        response_time FLOAT,
-                        error_message TEXT,
-                        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                        FOREIGN KEY (request_id) REFERENCES request_pool(request_id)
-                    )
-                """)
-                logger.debug("Operation log table created/verified")
-                
-                # Create indexes
-                logger.debug("Creating database indexes")
-                cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_request_pool_status 
-                    ON request_pool(status, priority)
-                """)
-                
-                cursor.execute("""
-                    CREATE INDEX IF NOT EXISTS idx_operation_log_request_id 
-                    ON operation_log(request_id)
-                """)
-                
-                self._conn.commit()
-                logger.info("Database tables and indexes setup completed")
+            cursor = self._conn.cursor()
+            # Request pool table
+            logger.debug("Creating request_pool table")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS request_pool (
+                    id INTEGER PRIMARY KEY,
+                    request_id TEXT UNIQUE NOT NULL,
+                    campaign_id TEXT NOT NULL,
+                    ad_item_id TEXT,
+                    ad_tag TEXT NOT NULL,
+                    ad_type TEXT NOT NULL,
+                    page_category_ids TEXT,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    priority INTEGER DEFAULT 0,
+                    retries INTEGER DEFAULT 0,
+                    last_attempt TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    CONSTRAINT valid_status CHECK (status IN ('pending', 'in_progress', 'completed', 'failed'))
+                )
+            """)
+            logger.debug("Request pool table created/verified")
+            
+            # Operation log table
+            logger.debug("Creating operation_log table")
+            cursor.execute("""
+                CREATE TABLE IF NOT EXISTS operation_log (
+                    id INTEGER PRIMARY KEY,
+                    request_id TEXT NOT NULL,
+                    operation_type TEXT NOT NULL,
+                    status TEXT NOT NULL,
+                    response_time FLOAT,
+                    error_message TEXT,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    FOREIGN KEY (request_id) REFERENCES request_pool(request_id)
+                )
+            """)
+            logger.debug("Operation log table created/verified")
+            
+            # Create indexes
+            logger.debug("Creating database indexes")
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_request_pool_status 
+                ON request_pool(status, priority)
+            """)
+            
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_operation_log_request_id 
+                ON operation_log(request_id)
+            """)
+            
+            self._conn.commit()
+            cursor.close()
+            logger.info("Database tables and indexes setup completed")
         except sqlite3.Error as e:
             logger.error(f"Failed to setup database tables: {str(e)}")
             raise
@@ -206,24 +207,42 @@ class Database:
             >>> db.save_ad_request(request_data)
         """
         try:
+            # Ensure request_id exists
+            if 'request_id' not in request_data:
+                logger.error("Missing request_id in request data")
+                return False
+
+            # Ensure required fields exist with defaults
+            required_fields = {
+                'campaign_id': '',
+                'ad_tag': '',
+                'ad_type': 'Display'
+            }
+            
+            for field, default in required_fields.items():
+                if field not in request_data or not request_data[field]:
+                    request_data[field] = default
+                    logger.warning(f"Using default value for missing field: {field}")
+
             logger.info(f"Saving ad request: {request_data['request_id']}")
-            with self._conn.cursor() as cursor:
-                cursor.execute("""
-                    INSERT INTO request_pool (
-                        request_id, campaign_id, ad_item_id, ad_tag,
-                        ad_type, page_category_ids
-                    ) VALUES (?, ?, ?, ?, ?, ?)
-                """, (
-                    request_data['request_id'],
-                    request_data['campaign_id'],
-                    request_data.get('ad_item_id'),
-                    request_data['ad_tag'],
-                    request_data['ad_type'],
-                    json.dumps(request_data.get('page_category_ids', []))
-                ))
-                self._conn.commit()
-                logger.info(f"Successfully saved ad request: {request_data['request_id']}")
-                return True
+            cursor = self._conn.cursor()
+            cursor.execute("""
+                INSERT INTO request_pool (
+                    request_id, campaign_id, ad_item_id, ad_tag,
+                    ad_type, page_category_ids
+                ) VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                request_data['request_id'],
+                request_data['campaign_id'],
+                request_data.get('ad_item_id'),
+                request_data['ad_tag'],
+                request_data['ad_type'],
+                json.dumps(request_data.get('page_category_ids', []))
+            ))
+            self._conn.commit()
+            cursor.close()
+            logger.info(f"Successfully saved ad request: {request_data['request_id']}")
+            return True
         except Exception as e:
             logger.error(f"Error saving ad request {request_data.get('request_id', 'unknown')}: {str(e)}")
             return False
@@ -243,18 +262,19 @@ class Database:
         """
         try:
             logger.info(f"Fetching up to {limit} pending requests")
-            with self._conn.cursor() as cursor:
-                cursor.execute("""
-                    SELECT * FROM request_pool
-                    WHERE status = 'pending'
-                    ORDER BY priority DESC, created_at ASC
-                    LIMIT ?
-                """, (limit,))
-                results = [dict(row) for row in cursor.fetchall()]
-                logger.info(f"Found {len(results)} pending requests")
-                if len(results) > 0:
-                    logger.debug(f"First request ID: {results[0].get('request_id')}")
-                return results
+            cursor = self._conn.cursor()
+            cursor.execute("""
+                SELECT * FROM request_pool
+                WHERE status = 'pending'
+                ORDER BY priority DESC, created_at ASC
+                LIMIT ?
+            """, (limit,))
+            results = [dict(row) for row in cursor.fetchall()]
+            cursor.close()
+            logger.info(f"Found {len(results)} pending requests")
+            if len(results) > 0:
+                logger.debug(f"First request ID: {results[0].get('request_id')}")
+            return results
         except Exception as e:
             logger.error(f"Error getting pending requests: {str(e)}")
             return []
@@ -275,19 +295,20 @@ class Database:
         """
         try:
             logger.info(f"Updating request {request_id} status to {status}")
-            with self._conn.cursor() as cursor:
-                cursor.execute("""
-                    UPDATE request_pool
-                    SET status = ?, last_attempt = CURRENT_TIMESTAMP
-                    WHERE request_id = ?
-                """, (status, request_id))
-                rows_affected = cursor.rowcount
-                self._conn.commit()
-                if rows_affected > 0:
-                    logger.info(f"Successfully updated request {request_id} status to {status}")
-                else:
-                    logger.warning(f"No request found with ID {request_id}")
-                return rows_affected > 0
+            cursor = self._conn.cursor()
+            cursor.execute("""
+                UPDATE request_pool
+                SET status = ?, last_attempt = CURRENT_TIMESTAMP
+                WHERE request_id = ?
+            """, (status, request_id))
+            rows_affected = cursor.rowcount
+            self._conn.commit()
+            cursor.close()
+            if rows_affected > 0:
+                logger.info(f"Successfully updated request {request_id} status to {status}")
+            else:
+                logger.warning(f"No request found with ID {request_id}")
+            return rows_affected > 0
         except Exception as e:
             logger.error(f"Error updating request {request_id} status: {str(e)}")
             return False
@@ -318,16 +339,17 @@ class Database:
         """
         try:
             logger.info(f"Logging {operation_type} operation for request {request_id}")
-            with self._conn.cursor() as cursor:
-                cursor.execute("""
-                    INSERT INTO operation_log (
-                        request_id, operation_type, status,
-                        response_time, error_message
-                    ) VALUES (?, ?, ?, ?, ?)
-                """, (request_id, operation_type, status, response_time, error_message))
-                self._conn.commit()
-                logger.info(f"Successfully logged operation for request {request_id}")
-                return True
+            cursor = self._conn.cursor()
+            cursor.execute("""
+                INSERT INTO operation_log (
+                    request_id, operation_type, status,
+                    response_time, error_message
+                ) VALUES (?, ?, ?, ?, ?)
+            """, (request_id, operation_type, status, response_time, error_message))
+            self._conn.commit()
+            cursor.close()
+            logger.info(f"Successfully logged operation for request {request_id}")
+            return True
         except Exception as e:
             logger.error(f"Error logging operation for request {request_id}: {str(e)}")
             return False 

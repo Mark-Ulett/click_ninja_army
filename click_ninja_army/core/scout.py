@@ -21,7 +21,7 @@ Example:
     ... )
     >>> scout = ScoutNinja(
     ...     request_config=config,
-    ...     db_connection_string="postgresql://user:pass@localhost/db",
+    ...     db_connection_string="click_ninja.db",
     ...     rate_limit=10.0,
     ...     burst_limit=20
     ... )
@@ -39,8 +39,8 @@ from queue import Queue, PriorityQueue
 import requests
 from dataclasses import dataclass, field
 from concurrent.futures import ThreadPoolExecutor
-import psycopg2
-from psycopg2.extras import Json
+import sqlite3
+from sqlite3 import Row
 
 # Configure logging
 logging.basicConfig(
@@ -64,14 +64,9 @@ class RequestConfig:
         ad_size (str): Size of the ad (default: "adSize2")
         ad_count (int): Number of ads per request (default: 20)
         timeout (int): Request timeout in seconds (default: 10)
-    
-    Example:
-        >>> config = RequestConfig(
-        ...     base_url="https://api.example.com",
-        ...     auth_token="your-token",
-        ...     publisher_id="pub123",
-        ...     guest_id="guest123"
-        ... )
+        ad_server_url (str): Base URL for ad server
+        ad_server_impressions_url (str): URL for impression tracking
+        ad_server_clicks_url (str): URL for click tracking
     """
     base_url: str
     auth_token: str
@@ -80,6 +75,9 @@ class RequestConfig:
     ad_size: str = "adSize2"
     ad_count: int = 20
     timeout: int = 10
+    ad_server_url: str = "https://dev.shyftcommerce.com/server"
+    ad_server_impressions_url: str = "https://dev.shyftcommerce.com/server/rmn-impressions"
+    ad_server_clicks_url: str = "https://dev.shyftcommerce.com/server/rmn-clicks"
 
 @dataclass
 class RateLimiter:
@@ -256,8 +254,8 @@ class RequestGenerator:
                     }
                 ],
                 "user": {
-                    "publisherId": self.config.publisher_id,
-                    "guestId": self.config.guest_id
+                    "publisherId": self.config.publisher_id if hasattr(self.config, 'publisher_id') else self.config.api.publisher_id,
+                    "guestId": self.config.guest_id if hasattr(self.config, 'guest_id') else self.config.api.guest_id
                 },
                 "keywords": keywords,
                 "pageCategoryIds": categories,
@@ -273,56 +271,65 @@ class RequestGenerator:
 
     def generate_request(self, campaign: Dict[str, Any]) -> Optional[str]:
         """
-        Generate a single request and return the request ID.
-        
-        This method:
-        1. Creates the request payload
-        2. Adds timestamp header
-        3. Makes the API request
-        4. Processes the response
-        5. Extracts the request ID
+        Generate a single ad request.
         
         Args:
-            campaign (Dict[str, Any]): Campaign data for request generation
+            campaign (Dict[str, Any]): Campaign data containing:
+                - adType (str): Type of ad
+                - adTag (str): Ad tag
+                - operation_type (str): Type of operation (impression or click)
+                - Additional campaign-specific fields
         
         Returns:
-            Optional[str]: Request ID if successful, None otherwise
-        
-        Example:
-            >>> campaign = {
-            ...     "adType": "banner",
-            ...     "adTag": "tag123"
-            ... }
-            >>> request_id = generator.generate_request(campaign)
+            Optional[str]: Generated request ID if successful, None otherwise
         """
         try:
-            logger.info(f"Generating request for campaign {campaign.get('campaign_id', 'unknown')}")
+            logger.info("Generating request")
             
-            # Create request payload
+            # Validate required fields
+            if 'adTag' not in campaign and not any('adTag' in slot for slot in campaign.get('slots', [])):
+                logger.error("Missing required field: adTag")
+                raise ValueError("Request data must contain 'adTag' field")
+            
+            # Create payload
             payload = self.create_request_payload(campaign)
-            logger.debug(f"Created payload: {json.dumps(payload)}")
+            
+            # Determine endpoint based on operation type
+            operation_type = campaign.get('operation_type', 'impression')
+            if operation_type == 'impression':
+                endpoint = self.config.ad_server_impressions_url
+            elif operation_type == 'click':
+                endpoint = self.config.ad_server_clicks_url
+            else:
+                logger.error(f"Unsupported operation type: {operation_type}")
+                raise ValueError(f"Unsupported operation type: {operation_type}")
             
             # Make API request
-            logger.info(f"Making API request to {self.config.base_url}/requests")
+            logger.info(f"Making API request to {endpoint}")
             response = self.session.post(
-                f"{self.config.base_url}/requests",
+                endpoint,
                 json=payload,
                 timeout=self.config.timeout
             )
             response.raise_for_status()
             
             # Process response
-            result = response.json()
-            request_id = result.get('request_id')
-            logger.info(f"Successfully generated request: {request_id}")
+            response_data = response.json()
+            request_id = response_data.get('requestId')
+            
+            if not request_id:
+                logger.error("No request ID in response")
+                return None
+                
+            logger.info(f"Successfully generated request with ID: {request_id}")
             return request_id
             
         except requests.exceptions.RequestException as e:
             logger.error(f"API request failed: {str(e)}")
-            return None
+            raise
         except Exception as e:
-            logger.error(f"Request generation failed: {str(e)}")
-            return None
+            logger.error(f"Failed to generate request: {str(e)}")
+            raise
 
 class RequestPool:
     """
@@ -336,12 +343,12 @@ class RequestPool:
     5. Concurrent access support
     
     Attributes:
-        db_conn: PostgreSQL database connection
+        db_conn: SQLite database connection
         priority_queue: Queue for managing request priorities
         lock: Thread synchronization lock
     
     Example:
-        >>> pool = RequestPool("postgresql://user:pass@localhost/db")
+        >>> pool = RequestPool("click_ninja.db")
         >>> pool.add_request("req123", target_matrix_id=1, priority=1)
     """
     
@@ -350,12 +357,13 @@ class RequestPool:
         Initialize the request pool.
         
         Args:
-            db_connection_string (str): PostgreSQL connection string
+            db_connection_string (str): SQLite database path
         
         Example:
-            >>> pool = RequestPool("postgresql://user:pass@localhost/db")
+            >>> pool = RequestPool("click_ninja.db")
         """
-        self.db_conn = psycopg2.connect(db_connection_string)
+        self.db_conn = sqlite3.connect(db_connection_string)
+        self.db_conn.row_factory = sqlite3.Row
         self._setup_database()
         self.priority_queue = PriorityQueue()
         self.lock = threading.Lock()
@@ -370,20 +378,21 @@ class RequestPool:
         3. Configures constraints
         
         Example:
-            >>> pool = RequestPool("postgresql://user:pass@localhost/db")
+            >>> pool = RequestPool("click_ninja.db")
             >>> # Database setup is automatic
         """
-        with self.db_conn.cursor() as cursor:
+        cursor = self.db_conn.cursor()
+        try:
             cursor.execute("""
                 CREATE TABLE IF NOT EXISTS request_pool (
-                    id SERIAL PRIMARY KEY,
+                    id INTEGER PRIMARY KEY,
                     request_id TEXT UNIQUE NOT NULL,
-                    target_matrix_id INTEGER NOT NULL REFERENCES target_matrix(id) ON DELETE CASCADE,
+                    target_matrix_id INTEGER NOT NULL,
                     status TEXT NOT NULL DEFAULT 'pending',
                     priority INTEGER DEFAULT 0,
                     retries INTEGER DEFAULT 0,
-                    last_attempt TIMESTAMP WITH TIME ZONE,
-                    created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+                    last_attempt TIMESTAMP,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     CONSTRAINT valid_status CHECK (status IN ('pending', 'in_progress', 'completed', 'failed'))
                 )
             """)
@@ -394,6 +403,8 @@ class RequestPool:
             """)
             
             self.db_conn.commit()
+        finally:
+            cursor.close()
 
     def add_request(self, request_id: str, target_matrix_id: int, priority: int = 0) -> bool:
         """
@@ -411,15 +422,18 @@ class RequestPool:
             >>> pool.add_request("req123", target_matrix_id=1, priority=1)
         """
         try:
-            with self.db_conn.cursor() as cursor:
+            cursor = self.db_conn.cursor()
+            try:
                 cursor.execute("""
                     INSERT INTO request_pool (request_id, target_matrix_id, priority)
-                    VALUES (%s, %s, %s)
+                    VALUES (?, ?, ?)
                     ON CONFLICT (request_id) DO NOTHING
                     RETURNING id
                 """, (request_id, target_matrix_id, priority))
                 self.db_conn.commit()
                 return cursor.fetchone() is not None
+            finally:
+                cursor.close()
         except Exception as e:
             logger.error(f"Error adding request to pool: {e}")
             return False
@@ -442,7 +456,8 @@ class RequestPool:
             ...     process_request(request)
         """
         try:
-            with self.db_conn.cursor() as cursor:
+            cursor = self.db_conn.cursor()
+            try:
                 cursor.execute("""
                     UPDATE request_pool
                     SET status = 'in_progress',
@@ -453,7 +468,6 @@ class RequestPool:
                         WHERE status = 'pending'
                         ORDER BY priority DESC, created_at ASC
                         LIMIT 1
-                        FOR UPDATE SKIP LOCKED
                     )
                     RETURNING id, request_id, target_matrix_id, retries
                 """)
@@ -467,6 +481,8 @@ class RequestPool:
                         "retries": result[3]
                     }
                 return None
+            finally:
+                cursor.close()
         except Exception as e:
             logger.error(f"Error getting next request: {e}")
             return None
@@ -485,14 +501,17 @@ class RequestPool:
             >>> pool.mark_request_completed(1)
         """
         try:
-            with self.db_conn.cursor() as cursor:
+            cursor = self.db_conn.cursor()
+            try:
                 cursor.execute("""
                     UPDATE request_pool
                     SET status = 'completed'
-                    WHERE id = %s
+                    WHERE id = ?
                 """, (request_id,))
                 self.db_conn.commit()
                 return cursor.rowcount > 0
+            finally:
+                cursor.close()
         except Exception as e:
             logger.error(f"Error marking request completed: {e}")
             return False
@@ -517,20 +536,23 @@ class RequestPool:
             >>> pool.mark_request_failed(1, max_retries=3)
         """
         try:
-            with self.db_conn.cursor() as cursor:
+            cursor = self.db_conn.cursor()
+            try:
                 cursor.execute("""
                     UPDATE request_pool
                     SET status = CASE
-                            WHEN retries < %s THEN 'pending'
+                            WHEN retries < ? THEN 'pending'
                             ELSE 'failed'
                         END,
                         retries = retries + 1
-                    WHERE id = %s
+                    WHERE id = ?
                     RETURNING status
                 """, (max_retries, request_id))
                 result = cursor.fetchone()
                 self.db_conn.commit()
                 return result and result[0] == 'pending'
+            finally:
+                cursor.close()
         except Exception as e:
             logger.error(f"Error marking request failed: {e}")
             return False
@@ -556,7 +578,7 @@ class ScoutNinja:
     Example:
         >>> scout = ScoutNinja(
         ...     request_config=config,
-        ...     db_connection_string="postgresql://user:pass@localhost/db",
+        ...     db_connection_string="click_ninja.db",
         ...     rate_limit=10.0,
         ...     burst_limit=20
         ... )
@@ -584,7 +606,7 @@ class ScoutNinja:
         Example:
             >>> scout = ScoutNinja(
             ...     request_config=config,
-            ...     db_connection_string="postgresql://user:pass@localhost/db",
+            ...     db_connection_string="click_ninja.db",
             ...     rate_limit=10.0,
             ...     burst_limit=20
             ... )

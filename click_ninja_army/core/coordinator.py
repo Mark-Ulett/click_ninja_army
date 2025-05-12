@@ -31,16 +31,21 @@ class CoordinatorConfig:
     publisher_id: str
     guest_id: str
     
+    # Ad server URLs
+    ad_server_url: str
+    ad_server_impressions_url: str
+    ad_server_clicks_url: str
+    
     # Scout Ninja configuration
-    scout_rate_limit: float = 10.0
-    scout_burst_limit: int = 20
-    scout_worker_count: int = 4
+    scout_rate_limit: float
+    scout_burst_limit: int
+    scout_worker_count: int
     
     # Strike Ninja configuration
-    strike_worker_count: int = 4
-    operation_timeout: int = 10
-    max_retries: int = 3
-    retry_delay: float = 1.0
+    strike_worker_count: int
+    operation_timeout: int
+    max_retries: int
+    retry_delay: float
 
 class WorkflowCoordinator:
     """Coordinates the workflow between Scout and Strike Ninjas"""
@@ -56,7 +61,10 @@ class WorkflowCoordinator:
             base_url=config.base_url,
             auth_token=config.auth_token,
             publisher_id=config.publisher_id,
-            guest_id=config.guest_id
+            guest_id=config.guest_id,
+            ad_server_url=config.ad_server_url,
+            ad_server_impressions_url=config.ad_server_impressions_url,
+            ad_server_clicks_url=config.ad_server_clicks_url
         )
         self.scout = ScoutNinja(
             request_config=scout_config,
@@ -73,6 +81,9 @@ class WorkflowCoordinator:
             auth_token=config.auth_token,
             publisher_id=config.publisher_id,
             guest_id=config.guest_id,
+            ad_server_url=config.ad_server_url,
+            ad_server_impressions_url=config.ad_server_impressions_url,
+            ad_server_clicks_url=config.ad_server_clicks_url,
             timeout=config.operation_timeout,
             max_retries=config.max_retries,
             retry_delay=config.retry_delay
@@ -254,10 +265,13 @@ def create_coordinator() -> WorkflowCoordinator:
     logger.info("Creating WorkflowCoordinator instance")
     coordinator_config = CoordinatorConfig(
         db_path=config.db_path,
-        base_url=config.api_url,
-        auth_token=config.api_token,
-        publisher_id=config.publisher_id,
-        guest_id=config.guest_id,
+        base_url=config.api.base_url,
+        auth_token=config.api.auth_token,
+        publisher_id=config.api.publisher_id,
+        guest_id=config.api.guest_id,
+        ad_server_url=config.api.ad_server_url,
+        ad_server_impressions_url=config.api.ad_server_impressions_url,
+        ad_server_clicks_url=config.api.ad_server_clicks_url,
         scout_rate_limit=config.rate_limit,
         scout_burst_limit=config.burst_limit,
         scout_worker_count=config.worker_count,

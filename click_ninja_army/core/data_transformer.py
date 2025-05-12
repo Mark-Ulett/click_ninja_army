@@ -20,6 +20,8 @@ Example:
 import logging
 from typing import Dict, List, Any, Optional
 import pandas as pd
+import json
+import time
 
 logger = logging.getLogger(__name__)
 
@@ -35,33 +37,34 @@ class DataTransformer:
     
     Attributes:
         required_fields (Dict[str, type]): Dictionary mapping required field names to their expected types.
-    
-    Example:
-        >>> transformer = DataTransformer()
-        >>> row = pd.Series({'campaign_id': '123', 'ad_item_id': '456'})
-        >>> transformed = transformer.transform_row(row)
+        optional_fields (Dict[str, type]): Dictionary mapping optional field names to their expected types.
     """
     
     def __init__(self):
         """
-        Initialize the DataTransformer with required field definitions.
+        Initialize the DataTransformer with required and optional field definitions.
         
-        The required fields are:
+        Required fields:
+        - ad_tag (str): Tag associated with the ad (required for all operations)
         - campaign_id (str): Unique identifier for the campaign
+        
+        Optional fields:
         - ad_item_id (str): Unique identifier for the ad item
-        - ad_tag (str): Tag associated with the ad
         - ad_type (str): Type of the ad (e.g., 'Display', 'Video')
         - ad_item_categories (str): Categories associated with the ad item
         """
         logger.info("Initializing DataTransformer")
         self.required_fields = {
-            'campaign_id': str,
-            'ad_item_id': str,
             'ad_tag': str,
+            'campaign_id': str
+        }
+        self.optional_fields = {
+            'ad_item_id': str,
             'ad_type': str,
             'ad_item_categories': str
         }
-        logger.debug(f"Required fields configured: {list(self.required_fields.keys())}")
+        logger.debug(f"Required fields: {list(self.required_fields.keys())}")
+        logger.debug(f"Optional fields: {list(self.optional_fields.keys())}")
     
     def parse_category_ids(self, category_str: str) -> List[int]:
         """
@@ -72,12 +75,6 @@ class DataTransformer:
         
         Returns:
             List[int]: List of parsed category IDs
-            
-        Example:
-            >>> transformer = DataTransformer()
-            >>> ids = transformer.parse_category_ids("{1019,1007,1006}")
-            >>> print(ids)
-            [1019, 1007, 1006]
         """
         logger.debug(f"Parsing category IDs from: {category_str}")
         
@@ -104,14 +101,10 @@ class DataTransformer:
             
         Returns:
             bool: True if row is valid, False otherwise
-            
-        Example:
-            >>> transformer = DataTransformer()
-            >>> row = pd.Series({'campaign_id': '123', 'ad_item_id': '456'})
-            >>> is_valid = transformer.validate_row(row)
         """
         logger.debug(f"Validating row: {row.to_dict()}")
         
+        # Check required fields
         for field, field_type in self.required_fields.items():
             if field not in row:
                 logger.error(f"Missing required field: {field}")
@@ -126,6 +119,18 @@ class DataTransformer:
                 except (ValueError, TypeError) as e:
                     logger.error(f"Invalid type for field {field}: {type(row[field])}, Error: {str(e)}")
                     return False
+        
+        # Check optional fields if present
+        for field, field_type in self.optional_fields.items():
+            if field in row and not pd.isna(row[field]):
+                if not isinstance(row[field], field_type):
+                    try:
+                        row[field] = field_type(row[field])
+                        logger.debug(f"Converted {field} to {field_type.__name__}")
+                    except (ValueError, TypeError) as e:
+                        logger.error(f"Invalid type for optional field {field}: {type(row[field])}, Error: {str(e)}")
+                        return False
+        
         logger.debug("Row validation successful")
         return True
     
@@ -138,17 +143,6 @@ class DataTransformer:
             
         Returns:
             Optional[Dict[str, Any]]: Transformed data or None if validation fails
-            
-        Example:
-            >>> transformer = DataTransformer()
-            >>> row = pd.Series({
-            ...     'campaign_id': '123',
-            ...     'ad_item_id': '456',
-            ...     'ad_tag': 'tag1',
-            ...     'ad_type': 'Display',
-            ...     'ad_item_categories': '{1019,1007}'
-            ... })
-            >>> transformed = transformer.transform_row(row)
         """
         logger.debug(f"Transforming row: {row.to_dict()}")
         
@@ -157,14 +151,29 @@ class DataTransformer:
             return None
             
         try:
+            # Create base payload with required fields and defaults
             transformed = {
-                'campaign_id': str(row['campaign_id']),
-                'ad_item_id': str(row['ad_item_id']),
-                'ad_tag': str(row['ad_tag']),
-                'ad_type': str(row['ad_type']),
-                'page_category_ids': self.parse_category_ids(row['ad_item_categories'])
+                'adTag': str(row.get('ad_tag', '')),  # Default to empty string if missing
+                'campaign_id': str(row.get('campaign_id', '')),  # Default to empty string if missing
+                'adItemId': int(row['ad_item_id']) if not pd.isna(row.get('ad_item_id')) else None,
+                'adType': str(row.get('ad_type', 'Display')),  # Default to 'Display' if missing
+                'creativeId': int(row['creative_id']) if not pd.isna(row.get('creative_id')) else None,
+                'customerId': str(row.get('campaign_id', '')),  # Use campaign_id as customerId for API
+                'payload': {
+                    'sessionId': f"session_{row.get('campaign_id', '')}_{row.get('ad_item_id', '')}" if not pd.isna(row.get('ad_item_id')) else None,
+                    'sessionExpiry': str(int(time.time()) + 3600)  # 1 hour from now
+                }
             }
-            logger.debug(f"Successfully transformed row: {transformed}")
+            
+            # Add category IDs if present
+            if 'ad_item_categories' in row and not pd.isna(row['ad_item_categories']):
+                transformed['pageCategoryIds'] = self.parse_category_ids(row['ad_item_categories'])
+            
+            # Remove None values and empty strings
+            transformed = {k: v for k, v in transformed.items() if v is not None and v != ''}
+            transformed['payload'] = {k: v for k, v in transformed['payload'].items() if v is not None and v != ''}
+            
+            logger.debug(f"Successfully transformed row: {json.dumps(transformed)}")
             return transformed
         except Exception as e:
             logger.error(f"Error transforming row: {str(e)}")

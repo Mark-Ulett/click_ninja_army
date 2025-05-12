@@ -1,33 +1,13 @@
 {
-    "adType": "Product",
-    "slots": [
-        {
-            "adTag": "petco/sp-creative-targeting-test/searchpage/product/product/desktop",
-            "adSize": "adSize4",
-            "adCount": 40
-        }
-    ],
-    "user": {
-        "publisherId": "PET67",
-        "customerId": null,
-        "guestId": "G-PET34567",
-        "networkIp": "127.0.0.1",
-        "searchKeyword": "premium dog food",
-        "pageType": "searchpage",
-        "pageCategoryIds": [],
-        "additionalProductFilters": null
-    },
-    "page": {
-        "currentUrl": "https://www.petco.com/shop/SearchDisplay",
-        "sourceUrl": "https://www.petco.com"
-    },
-    "device": {
-        "deviceId": "test-device-id",
-        "userAgent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7)",
-        "language": "en-US",
-        "platform": "macOS",
-        "screenSize": "1920x1080"
-    },
-    "keyValues": null,
-    "memoryToken": null
+    "adTag": "ad-tag",
+    "adItemId": 420,
+    "adRequestId": "test-ad-request-id-1",
+    "creativeId": 1,
+    "cache": false,
+    "customerId": "customer-id-1",
+    "displayedAt": "2023-07-11T10:01:00.080+00:00",
+    "payload": {
+        "sessionId": "test-session-id-1",
+        "sessionExpiry": "1905341811"
+    }
 }
