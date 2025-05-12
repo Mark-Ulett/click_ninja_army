@@ -162,112 +162,13 @@ The data flow is managed by the Coordinator (`core/coordinator.py`), which ensur
 - Resource management
 - System state consistency
 
-### Data Flow Diagrams
+### Configuration
 
-1. **Complete System Flow**
-```
-┌─────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│   CSV File  │────▶│  Data        │────▶│  Database    │────▶│  Request     │
-│             │     │  Transformer │     │  Interface   │     │  Generator   │
-└─────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
-                                                                    │
-                                                                    ▼
-┌─────────────┐     ┌──────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Operation  │◀────│  Scout/      │◀────│  Worker      │◀────│  API         │
-│  Log        │     │  Strike      │     │  Pool        │     │  Requests    │
-└─────────────┘     └──────────────┘     └──────────────┘     └──────────────┘
-```
+All configuration is centralized in `click_ninja_army/config/config.py`. **There is no .env or environment file.**
+- Edit `config.py` to set API endpoints, tokens, database path, and other settings as needed.
+- See `summary_of_config.md` for detailed configuration options.
 
-2. **Input Processing Flow**
-```
-┌─────────────┐     ┌─────────────────────┐     ┌──────────────┐
-│   CSV File  │────▶│  Data Transformer   │────▶│  Validated   │
-│             │     │                     │     │  Data        │
-└─────────────┘     └─────────────────────┘     └──────────────┘
-                           │
-                           ▼
-                    ┌─────────────────────┐
-                    │  Validation Steps   │
-                    │  - Required Fields  │
-                    │  - Data Types      │
-                    │  - Category IDs    │
-                    └─────────────────────┘
-```
-
-3. **Database Operations Flow**
-```
-┌─────────────┐     ┌─────────────────────┐     ┌──────────────┐
-│  Validated  │────▶│  Database Interface │────▶│  Request     │
-│  Data       │     │                     │     │  Pool        │
-└─────────────┘     └─────────────────────┘     └──────────────┘
-                           │                           │
-                           ▼                           ▼
-                    ┌─────────────────────┐     ┌──────────────┐
-                    │  Operation Log      │     │  Status      │
-                    │  - Success/Failure  │     │  Updates     │
-                    │  - Response Times   │     │  - Pending   │
-                    │  - Error Messages   │     │  - In Progress│
-                    └─────────────────────┘     │  - Completed │
-                                                └──────────────┘
-```
-
-4. **Execution Pipeline Flow**
-```
-┌─────────────┐     ┌──────────────┐     ┌──────────────┐
-│  Request    │────▶│  Worker      │────▶│  Scout/      │
-│  Pool       │     │  Pool        │     │  Strike      │
-└─────────────┘     └──────────────┘     └──────────────┘
-                           │                    │
-                           ▼                    ▼
-                    ┌──────────────┐     ┌──────────────┐
-                    │  Task        │     │  Operation   │
-                    │  Queue       │     │  Execution   │
-                    └──────────────┘     └──────────────┘
-```
-
-5. **Performance Monitoring Flow**
-```
-┌─────────────┐     ┌─────────────────────┐     ┌──────────────┐
-│  System     │────▶│  Scout Ninja        │────▶│  Metrics     │
-│  Components │     │                     │     │  Collection  │
-└─────────────┘     └─────────────────────┘     └──────────────┘
-                           │                           │
-                           ▼                           ▼
-                    ┌─────────────────────┐     ┌──────────────┐
-                    │  Performance        │     │  System      │
-                    │  Monitoring         │     │  Health      │
-                    │  - Success Rate     │     │  Checks      │
-                    │  - Response Time    │     │  - Resource  │
-                    │  - Error Rate       │     │    Usage     │
-                    └─────────────────────┘     └──────────────┘
-```
-
-6. **Error Handling Flow**
-```
-┌─────────────┐     ┌─────────────────────┐     ┌──────────────┐
-│  Error      │────▶│  Error Handler      │────▶│  Retry       │
-│  Detection  │     │                     │     │  Mechanism   │
-└─────────────┘     └─────────────────────┘     └──────────────┘
-                           │                           │
-                           ▼                           ▼
-                    ┌─────────────────────┐     ┌──────────────┐
-                    │  Error Logging      │     │  Status      │
-                    │  - Error Type       │     │  Update      │
-                    │  - Context          │     │  - Failed    │
-                    │  - Timestamp        │     │  - Retrying  │
-                    └─────────────────────┘     └──────────────┘
-```
-
-Each diagram illustrates the flow of data and control between components, showing:
-- Data transformation points
-- Component interactions
-- Error handling paths
-- Monitoring and logging points
-- Status updates and state changes
-
-The diagrams use ASCII art to maintain simplicity and readability while providing a clear visual representation of the system's architecture.
-
-## Installation
+### Installation
 
 1. **Prerequisites**
    - Python 3.8 or higher
@@ -288,18 +189,6 @@ The diagrams use ASCII art to maintain simplicity and readability while providin
    pip install -r requirements.txt
    ```
 
-## Configuration
-
-All configuration is centralized in `click_ninja_army/config/config.py`. Key settings include:
-
-- API endpoints and authentication
-- Database connection details
-- Worker pool configuration
-- Rate limiting parameters
-- Logging settings
-
-See `summary_of_config.md` for detailed configuration options.
-
 ## Usage
 
 ### Basic Usage
@@ -308,54 +197,38 @@ See `summary_of_config.md` for detailed configuration options.
 from click_ninja_army.core.data_transformer import DataTransformer
 from click_ninja_army.core.database import Database
 from click_ninja_army.core.request_generator import RequestGenerator
-from click_ninja_army.core.coordinator import Coordinator
+from click_ninja_army.config.config import config
 
 # Initialize components
 transformer = DataTransformer()
-db = Database()
+db = Database(config.db_path)
 generator = RequestGenerator(config)
-coordinator = Coordinator()
 
 # Process data
+import pandas as pd
 df = pd.read_csv('input.csv')
 transformed_data = transformer.transform_dataframe(df)
 
-# Generate and execute requests
-for row in transformed_data:
-    request = generator.generate_request(row)
-    coordinator.execute_request(request)
+# Save to database
+for row in transformed_data.to_dict(orient='records'):
+    db.save_ad_request(row)
+
+# Generate both impressions and clicks for each ad
+for row in transformed_data.to_dict(orient='records'):
+    for op_type in ['impression', 'click']:
+        row['operation_type'] = op_type
+        generator.generate_request(row)
 ```
 
-### Advanced Usage
+### Main Script Usage
 
-```python
-# Custom worker configuration
-from click_ninja_army.core.worker_pool import WorkerPool
+You can also use the provided `run_click_ninja.py` script, which will:
+- Load and transform your CSV
+- Save requests to the database
+- For each ad, generate both an impression and a click
 
-def process_task(task):
-    # Process the task
-    return result
-
-worker_pool = WorkerPool(
-    process_func=process_task,
-    max_workers=10
-)
-
-# Custom scout configuration
-from click_ninja_army.core.scout import Scout
-
-scout = Scout(
-    metrics_interval=60,
-    alert_threshold=0.9
-)
-
-# Custom strike configuration
-from click_ninja_army.core.strike import Strike
-
-strike = Strike(
-    max_retries=3,
-    retry_delay=5
-)
+```bash
+python run_click_ninja.py
 ```
 
 ## Development
@@ -410,8 +283,8 @@ sqlite3 click_ninja.db "SELECT * FROM operation_log ORDER BY created_at DESC LIM
    - Validate schema
 
 2. **API Issues**
-   - Check API token
-   - Verify endpoints
+   - Check API token in `config.py`
+   - Verify endpoints in `config.py`
    - Monitor rate limits
 
 3. **Performance Issues**

@@ -34,21 +34,49 @@
 
 3. **Configure the System**
    - All configuration is now hardcoded in `click_ninja_army/config/config.py`.
+   - **There is no .env or environment file.**
    - Edit this file to set API URLs, tokens, database path, and other settings as needed.
 
 4. **Initialize SQLite Database**
    ```bash
-   # Create and initialize the database
+   # Create and initialize the database (if needed)
    sqlite3 click_ninja.db < database.sql
    ```
 
 ## Running the System
 
-1. **Process CSV Data**
-   - Use your own script or interactive Python session to process CSVs using the DataTransformer and Database classes.
+1. **Process CSV Data and Generate Requests**
+   - Use the provided `run_click_ninja.py` script to process your CSV, save to the database, and generate both impressions and clicks for each ad.
+   
+   ```bash
+   python run_click_ninja.py
+   ```
 
-2. **Generate Requests**
-   - Use your own script or interactive Python session to generate requests using the RequestGenerator and Database classes.
+   - Alternatively, use an interactive Python session:
+   ```python
+   from click_ninja_army.core.data_transformer import DataTransformer
+   from click_ninja_army.core.database import Database
+   from click_ninja_army.core.request_generator import RequestGenerator
+   from click_ninja_army.config.config import config
+   import pandas as pd
+
+   # Load and transform data
+   df = pd.read_csv('input.csv')
+   transformer = DataTransformer()
+   transformed_data = transformer.transform_dataframe(df)
+
+   # Save to database
+   db = Database(config.db_path)
+   for row in transformed_data.to_dict(orient='records'):
+       db.save_ad_request(row)
+
+   # Generate both impressions and clicks for each ad
+   generator = RequestGenerator(config)
+   for row in transformed_data.to_dict(orient='records'):
+       for op_type in ['impression', 'click']:
+           row['operation_type'] = op_type
+           generator.generate_request(row)
+   ```
 
 ## Database Management
 
@@ -56,7 +84,7 @@
    - Download and install [DB Browser for SQLite](https://sqlitebrowser.org/)
    - Open `click_ninja.db` in DB Browser
    - Navigate through tables:
-     - `ad_requests`: View and manage requests
+     - `request_pool`: View and manage requests
      - `operation_log`: Check operation history
 
 2. **Using SQLite Command Line**
@@ -71,10 +99,10 @@
    .schema
    
    # Query requests
-   SELECT * FROM ad_requests WHERE status = 'pending';
+   SELECT * FROM request_pool WHERE status = 'pending';
    
    # Query operation log
-   SELECT * FROM operation_log ORDER BY started_at DESC LIMIT 10;
+   SELECT * FROM operation_log ORDER BY created_at DESC LIMIT 10;
    
    # Exit
    .quit
@@ -86,7 +114,7 @@
    ```sql
    -- In SQLite command line or DB Browser
    SELECT status, COUNT(*) 
-   FROM ad_requests 
+   FROM request_pool 
    GROUP BY status;
    ```
 
@@ -95,11 +123,11 @@
    SELECT 
        o.request_id,
        o.operation_type,
-       o.success,
+       o.status,
        o.error_message,
-       o.started_at
+       o.created_at
    FROM operation_log o
-   ORDER BY o.started_at DESC
+   ORDER BY o.created_at DESC
    LIMIT 20;
    ```
 
@@ -110,10 +138,10 @@
        r.campaign_id,
        r.ad_type,
        o.error_message
-   FROM ad_requests r
+   FROM request_pool r
    JOIN operation_log o ON r.request_id = o.request_id
    WHERE r.status = 'failed'
-   ORDER BY o.started_at DESC;
+   ORDER BY o.created_at DESC;
    ```
 
 ## Troubleshooting
@@ -144,7 +172,7 @@
 2. **Clean Up Old Data**
    ```sql
    -- Remove completed requests older than 30 days
-   DELETE FROM ad_requests 
+   DELETE FROM request_pool 
    WHERE status = 'completed' 
    AND created_at < datetime('now', '-30 days');
    ```

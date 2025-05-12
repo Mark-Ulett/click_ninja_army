@@ -16,12 +16,10 @@ The Data Transformer is responsible for converting CSV input data into API-ready
 ### Usage Example
 ```python
 from click_ninja_army.core.data_transformer import DataTransformer
+import pandas as pd
 
-# Initialize transformer
-transformer = DataTransformer()
-
-# Process CSV data
 df = pd.read_csv('input.csv')
+transformer = DataTransformer()
 transformed_data = transformer.transform_dataframe(df)
 ```
 
@@ -46,9 +44,9 @@ The Database Interface manages all database operations and request lifecycle.
 ### Usage Example
 ```python
 from click_ninja_army.core.database import Database
+from click_ninja_army.config.config import config
 
-# Initialize database
-db = Database()
+db = Database(config.db_path)
 
 # Save new request
 request_data = {
@@ -63,7 +61,7 @@ db.update_request_status('request_123', 'completed')
 ```
 
 ### Database Schema
-- `ad_requests`: Stores request data
+- `request_pool`: Stores request data
 - `operation_log`: Tracks operation history
 
 ## Request Generator (`core/request_generator.py`)
@@ -80,16 +78,21 @@ The Request Generator creates API-compatible requests from validated data.
 ### Usage Example
 ```python
 from click_ninja_army.core.request_generator import RequestGenerator
+from click_ninja_army.config.config import config
 
-# Initialize generator
-generator = RequestGenerator()
+generator = RequestGenerator(config)
 
-# Generate request
-request_data = {
-    'campaign_id': '123',
-    'ad_type': 'Display'
+# Generate both impressions and clicks for each ad
+row = {
+    'adTag': 'example-tag',
+    'adItemId': 123,
+    'adType': 'Display',
+    'campaign_id': 'camp_001',
+    # ... other required fields ...
 }
-request = generator.generate_request(request_data)
+for op_type in ['impression', 'click']:
+    row['operation_type'] = op_type
+    generator.generate_request(row)
 ```
 
 ### Supported Ad Types
@@ -113,7 +116,6 @@ The Worker Pool manages concurrent processing of requests.
 ```python
 from click_ninja_army.core.worker_pool import WorkerPool
 
-# Initialize worker pool
 pool = WorkerPool(max_workers=10)
 
 # Submit task
@@ -140,10 +142,7 @@ The Scout monitors system performance and health.
 ```python
 from click_ninja_army.core.scout import Scout
 
-# Initialize scout
 scout = Scout(metrics_interval=60)
-
-# Start monitoring
 scout.start_monitoring()
 ```
 
@@ -168,10 +167,7 @@ The Strike executes ad requests and handles retries.
 ```python
 from click_ninja_army.core.strike import Strike
 
-# Initialize strike
 strike = Strike(max_retries=3)
-
-# Execute request
 result = strike.execute_request(request_data)
 ```
 
@@ -195,16 +191,13 @@ The Coordinator orchestrates all system components.
 ```python
 from click_ninja_army.core.coordinator import Coordinator
 
-# Initialize coordinator
 coordinator = Coordinator()
-
-# Process data
 coordinator.process_data(input_data)
 ```
 
 ### Workflow Management
 1. Data validation
-2. Request generation
+2. Request generation (impressions and clicks for each ad)
 3. Task distribution
 4. Execution monitoring
 5. Result processing
@@ -215,7 +208,7 @@ The components interact in the following sequence:
 
 1. **Data Flow**
    ```
-   CSV Data → Data Transformer → Database → Request Generator → Worker Pool → Scout/Strike → Results
+   CSV Data → Data Transformer → Database → Request Generator (impressions & clicks) → Worker Pool → Scout/Strike → Results
    ```
 
 2. **Status Flow**
@@ -227,6 +220,11 @@ The components interact in the following sequence:
    ```
    Error → Scout → Coordinator → Retry/Log
    ```
+
+## Configuration
+
+All configuration is centralized in `click_ninja_army/config/config.py`. **There is no .env or environment file.**
+- Edit `config.py` to set API endpoints, tokens, database path, and other settings as needed.
 
 ## Best Practices
 
@@ -253,4 +251,4 @@ The components interact in the following sequence:
    - Sanitize database queries
    - Secure API communication
    - Monitor access patterns
-``` 
+```
