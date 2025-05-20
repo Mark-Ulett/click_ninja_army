@@ -1,0 +1,32 @@
+{
+    "adType": "Display",
+    "slots": [
+        {
+            "adTag": "petco/multi-keywords-test/searchpage/product/product/desktop",
+            "adSize": "adSize2",
+            "adCount": 10
+        }
+    ],
+    "user": {
+        "publisherId": "PET67",
+        "customerId": null,
+        "guestId": "G-PET34567",
+        "networkIp": "String",
+        "searchKeyword": null,
+        "pageType": "String",
+        "pageCategoryIds": null,
+        "additionalProductFilters": null
+    },
+    "page": {
+        "currentUrl": "String",
+        "sourceUrl": "String"
+    },
+    "device": {
+        "deviceId": "String",
+        "userAgent": "String",
+        "language": "String",
+        "platform": "String",
+        "screenSize": "String"
+    },
+    "keyValues": null
+}

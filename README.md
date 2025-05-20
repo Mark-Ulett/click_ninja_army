@@ -1,313 +1,174 @@
 # Click Ninja Army
 
-A streamlined system for processing ad server data and generating ad requests. The system focuses on simplicity and efficiency, using SQLite for data storage and a straightforward processing pipeline.
+## Overview
+Click Ninja Army is a modular, parallelized system for managing ad campaign requests, impressions, and clicks. It features robust data ingestion, campaign pool generation, request queuing, rate limiting, and performance monitoring, all backed by a structured SQLite database.
+
+## Features
+- CSV-based campaign ingestion and transformation
+- Campaign pool generation with keyword/category expansion
+- Parallel ad request generation (Scout Ninja)
+- Parallel impression and click processing (Strike Ninja)
+- Rate limiting and queue management
+- Centralized performance monitoring and metrics
+- Extensible worker pool configuration
+- **Robust error handling with circuit breaker:** If repeated API failures occur, the system will pause all workers for a cooldown period and then resume, preventing endless worker spawning and API hammering.
 
 ## System Architecture
+- **Data Ingestion & Transformation:** Validates and normalizes CSVs, generates campaign pool entries
+- **Campaign Pool Generation:** Expands base entries with keyword/category combinations, tracks metrics
+- **Ad Request Generation (Scout Ninja):** Handles parallel request generation, rate limiting, and queuing
+- **Impression & Click Processing (Strike Ninja):** Processes impressions/clicks in parallel, logs operations and metrics
+- **Performance Monitoring:** Tracks system health, queue sizes, worker utilization, and error rates
+- **Database Management:** Handles schema migrations, versioning, and backups
+- **Circuit Breaker for API Errors:** If a threshold of consecutive failures is reached, all workers are paused for a cooldown period before resuming, ensuring system stability during backend outages or misconfiguration.
 
-### Core Components
+## Project Structure
+```
+Click_Ninja_Army_1.1/
+├── click_ninja_army/
+│   ├── core/           # Core system components
+│   ├── scripts/        # Command-line scripts
+│   ├── tests/          # Test suite
+│   ├── config/         # Configuration files
+│   └── __init__.py
+├── docs/               # Documentation
+├── logs/              # System logs
+├── APIs/              # API integration files
+├── click_ninja.db     # Main database
+├── requirements.txt   # Python dependencies
+└── README.md
+```
 
-1. **Data Transformer** (`core/data_transformer.py`)
-   - Processes CSV input data
-   - Validates required fields and data types
-   - Transforms data into API-ready format
-   - Handles category ID parsing and validation
+## Database Schema
+### Core Tables
+- `campaign_pool`: Stores all campaign/ad/creative combinations with metrics
+- `campaign_pool_metrics`: Tracks campaign pool generation statistics
+- `request_pool`: Stores ad requests and their statuses
+- `operation_log`: Logs impressions/clicks and their outcomes
+- `performance_metrics`: Centralized metrics for system health
 
-2. **Database Interface** (`core/database.py`)
-   - SQLite-based storage system
-   - Manages request lifecycle
-   - Tracks operation history
-   - Provides CRUD operations
-   - Handles table creation and indexing
+### Monitoring Tables
+- `monitoring_metrics`: System-wide monitoring data
+- `queue_metrics`: Queue performance and status
+- `worker_metrics`: Worker pool utilization and performance
+- `schema_version`: Database schema version tracking
 
-3. **Request Generator** (`core/request_generator.py`)
-   - Generates API-compatible requests
-   - Supports multiple ad types
-   - Handles request formatting
-   - Manages API communication
-   - Processes responses
-
-4. **Worker Pool** (`core/worker_pool.py`)
-   - Manages concurrent processing
-   - Handles task distribution
-   - Controls resource utilization
-   - Provides worker lifecycle management
-   - Implements error handling
-
-5. **Scout** (`core/scout.py`)
-   - Monitors system performance
-   - Tracks request metrics
-   - Provides real-time insights
-   - Manages system health
-
-6. **Strike** (`core/strike.py`)
-   - Executes ad requests
-   - Handles retry logic
-   - Manages error recovery
-   - Tracks execution status
-
-7. **Coordinator** (`core/coordinator.py`)
-   - Orchestrates system components
-   - Manages workflow
-   - Handles component communication
-   - Provides system coordination
-
-### Data Flow
-
-The system processes data through several well-defined stages, each handled by specific components:
-
-1. **Input Processing** (`core/data_transformer.py`)
-   ```
-   CSV File → Data Transformer → Validated Data
-   ```
-   - CSV file is read using pandas
-   - Data Transformer validates required fields:
-     - campaign_id (str)
-     - ad_item_id (str)
-     - ad_tag (str)
-     - ad_type (str)
-     - ad_item_categories (str)
-   - Category IDs are parsed from string format
-   - Data is transformed into API-ready format
-   - Invalid rows are logged and excluded
-
-2. **Database Storage** (`core/database.py`)
-   ```
-   Validated Data → Database → Request Pool
-   ```
-   - SQLite database is initialized with tables:
-     - request_pool: Stores ad requests and status
-     - operation_log: Tracks operation history
-   - Each request is stored with:
-     - Unique request_id
-     - Campaign details
-     - Ad specifications
-     - Status (pending/in_progress/completed/failed)
-     - Priority and retry count
-   - Indexes are created for efficient querying
-
-3. **Request Generation** (`core/request_generator.py`)
-   ```
-   Database → Request Generator → API Requests
-   ```
-   - Request Generator creates API-compatible payloads:
-     - Adds authentication headers
-     - Formats request data
-     - Handles different ad types (Display/Video)
-     - Manages API communication
-   - Rate limiting is applied (configurable)
-   - Responses are processed and validated
-
-4. **Execution Pipeline** (`core/coordinator.py`, `core/scout.py`, `core/strike.py`)
-   ```
-   API Requests → Worker Pool → Scout/Strike → Results
-   ```
-   - Coordinator orchestrates the workflow:
-     - Initializes Scout and Strike Ninjas
-     - Manages component communication
-     - Handles error recovery
-   - Scout Ninja:
-     - Monitors system performance
-     - Tracks request metrics
-     - Manages request queue
-   - Strike Ninja:
-     - Executes ad operations
-     - Handles retry logic
-     - Tracks execution status
-
-5. **Status Tracking** (`core/database.py`)
-   ```
-   Results → Database → Operation Log
-   ```
-   - Operation results are logged:
-     - Success/failure status
-     - Response times
-     - Error messages
-     - Timestamps
-   - Request status is updated
-   - Performance metrics are recorded
-
-6. **Worker Management** (`core/worker_pool.py`)
-   ```
-   Tasks → Worker Pool → Processed Results
-   ```
-   - Worker Pool manages concurrent processing:
-     - Creates and manages worker threads
-     - Distributes tasks from queue
-     - Handles task results
-     - Implements error handling
-   - Resource utilization is controlled
-   - Graceful shutdown is supported
-
-7. **Performance Monitoring** (`core/scout.py`)
-   ```
-   System → Scout → Metrics
-   ```
-   - Real-time metrics collection:
-     - Request success rate
-     - Processing time
-     - Error rates
-     - Resource utilization
-   - Performance alerts
-   - System health monitoring
-
-Each stage in the pipeline is designed to be:
-- Independent and modular
-- Error-resistant with proper logging
-- Performance-optimized
-- Easily monitored and debugged
-
-The data flow is managed by the Coordinator (`core/coordinator.py`), which ensures:
-- Proper sequencing of operations
-- Error handling and recovery
-- Resource management
-- System state consistency
-
-### Configuration
-
-All configuration is centralized in `click_ninja_army/config/config.py`. **There is no .env or environment file.**
-- Edit `config.py` to set API endpoints, tokens, database path, and other settings as needed.
-- See `summary_of_config.md` for detailed configuration options.
-
-### Installation
-
-1. **Prerequisites**
-   - Python 3.8 or higher
-   - pip (Python package manager)
-   - virtualenv or venv
-
-2. **Setup**
+## Setup
+1. **Clone the repository:**
    ```bash
-   # Create virtual environment
-   python -m venv venv
-   
-   # Activate virtual environment
-   source venv/bin/activate  # On Unix/macOS
-   # or
-   .\venv\Scripts\activate  # On Windows
-   
-   # Install dependencies
+   git clone <repo-url>
+   cd Click_Ninja_Army_1.1
+   ```
+2. **Install dependencies:**
+   ```bash
    pip install -r requirements.txt
    ```
+3. **Initialize the database:**
+   ```bash
+   python click_ninja_army/core/database_migration.py
+   ```
+4. **Configure worker pools and operation settings:**
+   - Edit your configuration file or environment variables as needed (see `WORKFLOW.md` for details)
 
 ## Usage
+- **Ingest a new campaign CSV:**
+  ```bash
+  python -m click_ninja_army.scripts.ingest_csv <input.csv>
+  ```
+- **Generate ad requests:**
+  ```bash
+  python click_ninja_army/core/scout_ninja.py
+  ```
+- **Process impressions/clicks:**
+  ```bash
+  python click_ninja_army/core/strike_ninja.py
+  ```
+- **Monitor performance:**
+  ```bash
+  python click_ninja_army/core/monitoring.py
+  ```
 
-### Basic Usage
+## ScoutNinja Runner
+The ScoutNinja module includes a dedicated runner script (`run_scout_ninja.py`) that provides a command-line interface for testing and running the ScoutNinja module. The script includes proper error handling and logging.
 
-```python
-from click_ninja_army.core.data_transformer import DataTransformer
-from click_ninja_army.core.database import Database
-from click_ninja_army.core.request_generator import RequestGenerator
-from click_ninja_army.config.config import config
-
-# Initialize components
-transformer = DataTransformer()
-db = Database(config.db_path)
-generator = RequestGenerator(config)
-
-# Process data
-import pandas as pd
-df = pd.read_csv('input.csv')
-transformed_data = transformer.transform_dataframe(df)
-
-# Save to database
-for row in transformed_data.to_dict(orient='records'):
-    db.save_ad_request(row)
-
-# Generate both impressions and clicks for each ad
-for row in transformed_data.to_dict(orient='records'):
-    for op_type in ['impression', 'click']:
-        row['operation_type'] = op_type
-        generator.generate_request(row)
-```
-
-### Main Script Usage
-
-You can also use the provided `run_click_ninja.py` script, which will:
-- Load and transform your CSV
-- Save requests to the database
-- For each ad, generate both an impression and a click
-
+### Usage Examples
 ```bash
-python run_click_ninja.py
+# Test the parser component
+python run_scout_ninja.py --test-parser --input-file path/to/your/input.csv
+
+# Test the validator component
+python run_scout_ninja.py --test-validator --input-file path/to/your/input.csv
+
+# Test the processor component
+python run_scout_ninja.py --test-processor --input-file path/to/your/input.csv
+
+# Run the full workflow
+python run_scout_ninja.py --input-file path/to/your/input.csv
+
+# Use custom config and debug logging
+python run_scout_ninja.py --input-file path/to/your/input.csv --config-file custom_config.yaml --log-level DEBUG
 ```
 
-## Development
+### Features
+- **Component Testing**: Test individual components (parser, validator, processor) separately
+- **Full Workflow Testing**: Run the complete ScoutNinja workflow
+- **Configuration Flexibility**: Customize config file location and logging level
+- **Error Handling**: Comprehensive error handling and logging
 
-### Code Style
-- Follow PEP 8 guidelines
-- Use type hints
-- Write comprehensive docstrings
-- Include unit tests
+### Benefits
+- Debug each component independently
+- Verify the data flow between components
+- Test the full workflow when ready
+- Have a clear entry point for the ScoutNinja module
 
-### Testing
+## Contribution Guidelines
+- Please review `WORKFLOW.md` for system details and architecture.
+- Ensure all new scripts and functions include clear docstrings and type annotations.
+- Update or add tests for new features.
+- Keep documentation up to date with any changes.
+
+## Critical Requirements
+- `adRequestId` is always generated by the backend API (never in the CSV)
+- Impressions/clicks must use the exact `adRequestId` from the request phase
+- System must enforce rate limits and parallelism as configured
+- All database operations must maintain referential integrity
+- Performance metrics must be tracked for all operations
+
+## ScoutNinja Runner Implementation
+
+### Overview
+The ScoutNinja module now includes a dedicated runner script (`run_scout_ninja.py`) that provides a command-line interface for testing and running the ScoutNinja module. The script includes proper error handling and logging.
+
+### Usage Examples
 ```bash
-# Run tests
-pytest
+# Test the parser component
+python run_scout_ninja.py --test-parser --input-file path/to/your/input.csv
 
-# Run with coverage
-pytest --cov=click_ninja_army
+# Test the validator component
+python run_scout_ninja.py --test-validator --input-file path/to/your/input.csv
+
+# Test the processor component
+python run_scout_ninja.py --test-processor --input-file path/to/your/input.csv
+
+# Run the full workflow
+python run_scout_ninja.py --input-file path/to/your/input.csv
+
+# Use custom config and debug logging
+python run_scout_ninja.py --input-file path/to/your/input.csv --config-file custom_config.yaml --log-level DEBUG
 ```
 
-### Database Management
-```bash
-# View database schema
-sqlite3 click_ninja.db ".schema"
+### Features
+- **Component Testing**: Test individual components (parser, validator, processor) separately
+- **Full Workflow Testing**: Run the complete ScoutNinja workflow
+- **Configuration Flexibility**: Customize config file location and logging level
+- **Error Handling**: Comprehensive error handling and logging
 
-# Query requests
-sqlite3 click_ninja.db "SELECT * FROM request_pool WHERE status = 'pending';"
+### Benefits
+- Debug each component independently
+- Verify the data flow between components
+- Test the full workflow when ready
+- Have a clear entry point for the ScoutNinja module
 
-# View operation log
-sqlite3 click_ninja.db "SELECT * FROM operation_log ORDER BY created_at DESC LIMIT 10;"
-```
-
-## Monitoring
-
-### Performance Metrics
-- Request success rate
-- Processing time
-- Error rates
-- Resource utilization
-
-### Logging
-- Request/response logging
-- Error tracking
-- Performance metrics
-- System events
-
-## Troubleshooting
-
-### Common Issues
-1. **Database Connection**
-   - Verify database exists
-   - Check permissions
-   - Validate schema
-
-2. **API Issues**
-   - Check API token in `config.py`
-   - Verify endpoints in `config.py`
-   - Monitor rate limits
-
-3. **Performance Issues**
-   - Check worker configuration
-   - Monitor resource usage
-   - Review rate limits
-
-## Support
-
-For support:
-1. Check the documentation
-2. Review existing issues
-3. Submit new issues with:
-   - Detailed description
-   - Steps to reproduce
-   - Expected behavior
-   - Actual behavior
-   - Environment details
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
-
-## Authors
-
-- Your Name - Initial work and maintenance 
+*Note: This document should be reviewed and updated as new issues are discovered or existing ones are resolved.* 
+## Contact
+Mark Ulett

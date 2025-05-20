@@ -1,0 +1,13 @@
+{
+    "adTag": "ad-tag",
+    "adItemId": 420,
+    "adRequestId": "test-ad-request-id-1",
+    "creativeId": 1,
+    "cache": false,
+    "customerId": "customer-id-1",
+    "displayedAt": "2023-07-11T10:01:00.080+00:00",
+    "payload": {
+        "sessionId": "test-session-id-1",
+        "sessionExpiry": "1905341811"
+    }
+}

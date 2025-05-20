@@ -1,0 +1,33 @@
+{
+    "adType": "Product",
+    "slots": [
+        {
+            "adTag": "petco/c&i-demo/homepage/product/product/desktop",
+            "adSize": "adSize4",
+            "adCount": 40
+        }
+    ],
+    "user": {
+        "publisherId": "PET67",
+        "customerId": null,
+        "guestId": "G-PET34567",
+        "networkIp": "String",
+        "searchKeyword": "",
+        "pageType": "String",
+        "pageCategoryIds": [],
+        "additionalProductFilters": null
+    },
+    "page": {
+        "currentUrl": "String",
+        "sourceUrl": "String"
+    },
+    "device": {
+        "deviceId": "String",
+        "userAgent": "String",
+        "language": "String",
+        "platform": "String",
+        "screenSize": "String"
+    },
+    "keyValues": null,
+    "memoryToken": null
+}

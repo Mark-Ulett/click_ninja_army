@@ -1,27 +1,27 @@
 """
 Data Transformer for Click Ninja Army
 
-This module handles the transformation of CSV data into API-ready format.
-It provides validation, type checking, and data cleaning functionality.
+This module handles the transformation of CSV data into campaign pool entries.
+It provides validation, type checking, data cleaning, and campaign pool generation functionality.
 
 Key Features:
-- CSV data validation
-- Type conversion
+- CSV data validation and type conversion
 - Category ID parsing
-- Data transformation
-- Error logging
+- Campaign pool entry generation with keyword/category expansion
+- Error logging and metrics tracking
 
 Example:
-    >>> transformer = DataTransformer()
-    >>> df = pd.read_csv('input.csv')
-    >>> transformed_data = transformer.transform_dataframe(df)
+    >>> transformer = DataTransformer(db)
+    >>> success = transformer.process_csv('input.csv')
 """
 
 import logging
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 import pandas as pd
 import json
 import time
+from datetime import datetime
+import csv
 
 logger = logging.getLogger(__name__)
 
@@ -40,32 +40,184 @@ class DataTransformer:
         optional_fields (Dict[str, type]): Dictionary mapping optional field names to their expected types.
     """
     
-    def __init__(self):
+    def __init__(self, db):
         """
-        Initialize the DataTransformer with required and optional field definitions.
+        Initialize the DataTransformer with database connection.
         
-        Required fields:
-        - ad_tag (str): Tag associated with the ad (required for all operations)
-        - campaign_id (str): Unique identifier for the campaign
-        
-        Optional fields:
-        - ad_item_id (str): Unique identifier for the ad item
-        - ad_type (str): Type of the ad (e.g., 'Display', 'Video')
-        - ad_item_categories (str): Categories associated with the ad item
+        Args:
+            db: Database connection object
         """
         logger.info("Initializing DataTransformer")
+        self.db = db
         self.required_fields = {
+            'creative_id': int,
             'ad_tag': str,
-            'campaign_id': str
+            'ad_item_id': str,
+            'campaign_id': str,
+            'ad_type': str
         }
         self.optional_fields = {
-            'ad_item_id': str,
-            'ad_type': str,
-            'ad_item_categories': str
+            'ad_item_keywords': str,
+            'ad_item_categories': str,
+            'creative_keywords': str,
+            'creative_categories': str
         }
         logger.debug(f"Required fields: {list(self.required_fields.keys())}")
         logger.debug(f"Optional fields: {list(self.optional_fields.keys())}")
     
+    def parse_keywords_or_categories(self, value: str) -> List[str]:
+        """
+        Parse keywords or categories from string format.
+        Handles both comma-separated and curly-brace-wrapped lists.
+        Args:
+            value: Comma-separated string or curly-brace-wrapped string of keywords or categories
+        Returns:
+            List of individual keywords or categories
+        """
+        if not value:
+            return []
+        # Remove curly braces if present
+        value = value.strip('{}')
+        return [item.strip().strip('"') for item in value.split(',') if item.strip()]
+
+    def generate_campaign_pool_entries(self, row: Dict[str, str]) -> List[Dict[str, Any]]:
+        """
+        Generate campaign pool entries for a single CSV row.
+        
+        Args:
+            row: Dictionary containing CSV row data
+        
+        Returns:
+            List of campaign pool entries
+        """
+        entries = []
+        base_entry = {
+            'ad_tag': row['ad_tag'],
+            'ad_item_id': row['ad_item_id'],
+            'creative_id': row['creative_id'],
+            'campaign_id': row['campaign_id'],
+            'ad_type': row['ad_type']
+        }
+
+        # Add base entry without keywords/categories
+        entries.append(base_entry.copy())
+
+        # Process ad item keywords
+        if 'ad_item_keywords' in row and row['ad_item_keywords']:
+            keywords = self.parse_keywords_or_categories(row['ad_item_keywords'])
+            for keyword in keywords:
+                entry = base_entry.copy()
+                entry['keyword'] = keyword
+                entries.append(entry)
+
+        # Process ad item categories
+        if 'ad_item_categories' in row and row['ad_item_categories']:
+            categories = self.parse_keywords_or_categories(row['ad_item_categories'])
+            for category in categories:
+                entry = base_entry.copy()
+                entry['category'] = category
+                entries.append(entry)
+
+        # Process creative keywords
+        if 'creative_keywords' in row and row['creative_keywords']:
+            keywords = self.parse_keywords_or_categories(row['creative_keywords'])
+            for keyword in keywords:
+                entry = base_entry.copy()
+                entry['keyword'] = keyword
+                entries.append(entry)
+
+        # Process creative categories
+        if 'creative_categories' in row and row['creative_categories']:
+            categories = self.parse_keywords_or_categories(row['creative_categories'])
+            for category in categories:
+                entry = base_entry.copy()
+                entry['category'] = category
+                entries.append(entry)
+
+        return entries
+
+    def process_csv(self, csv_path: str) -> bool:
+        """
+        Process a CSV file and generate campaign pool entries.
+        
+        Args:
+            csv_path: Path to the CSV file
+        
+        Returns:
+            bool: True if processing was successful, False otherwise
+        """
+        start_time = time.time()
+        rows_processed = 0
+        rows_generated = 0
+
+        try:
+            with open(csv_path, 'r') as f:
+                reader = csv.DictReader(f)
+                
+                for row in reader:
+                    rows_processed += 1
+                    print(f"Processing row: {row}")
+                    if not self.validate_row(row):
+                        print(f"Skipping invalid row: {row}")
+                        continue
+
+                    entries = self.generate_campaign_pool_entries(row)
+                    for entry in entries:
+                        print(f"Attempting to insert entry: {entry}")
+                        entry_id = self.db.insert_campaign_pool_entry(entry)
+                        if entry_id != -1:
+                            print(f"Inserted entry with id {entry_id}")
+                            rows_generated += 1
+                        else:
+                            raise Exception(f"Failed to insert entry: {entry}")
+
+            self.db.log_campaign_pool_metrics(rows_processed, rows_generated)
+            duration = time.time() - start_time
+            print(f"Processed {rows_processed} rows, generated {rows_generated} entries in {duration:.2f} seconds")
+            return True
+
+        except Exception as e:
+            print(f"Error processing CSV file: {e}")
+            return False
+
+    def validate_row(self, row: Dict[str, str]) -> bool:
+        """
+        Validate a CSV row.
+        
+        Args:
+            row: Dictionary containing CSV row data
+        
+        Returns:
+            bool: True if row is valid, False otherwise
+        """
+        print(f"Validating row: {row}")
+        # Check required fields
+        for field, field_type in self.required_fields.items():
+            if field not in row:
+                print(f"Missing required field: {field}")
+                return False
+            try:
+                # Convert to required type
+                if field_type == int:
+                    row[field] = int(row[field])
+                else:
+                    row[field] = field_type(row[field])
+            except ValueError:
+                print(f"Invalid type for field {field}: {row[field]}")
+                return False
+
+        # Check optional fields
+        for field in self.optional_fields:
+            if field in row and row[field]:
+                try:
+                    # Ensure all optional fields are strings
+                    row[field] = str(row[field])
+                except ValueError:
+                    print(f"Invalid type for optional field {field}: {row[field]}")
+                    return False
+
+        return True
+
     def parse_category_ids(self, category_str: str) -> List[int]:
         """
         Parse category IDs from a string format into a list of integers.
@@ -92,46 +244,50 @@ class DataTransformer:
             logger.error(f"Failed to parse categories: {str(e)}, Input: {category_str}")
             return []
     
-    def validate_row(self, row: pd.Series) -> bool:
+    def _validate_ad_request_id(self, ad_request_id: str) -> bool:
         """
-        Validate that all required fields are present and of correct type.
+        Validate that the adRequestId contains the required suffix format.
         
         Args:
-            row (pd.Series): Row of data to validate
+            ad_request_id (str): The adRequestId to validate
             
         Returns:
-            bool: True if row is valid, False otherwise
+            bool: True if valid, False otherwise
+            
+        The adRequestId must:
+        1. Not be empty
+        2. Contain exactly one forward slash
+        3. Have a UUID part that is at least 8 characters
+        4. Have a valid suffix containing only alphanumeric characters, hyphens, or underscores
         """
-        logger.debug(f"Validating row: {row.to_dict()}")
+        if not ad_request_id or not isinstance(ad_request_id, str):
+            logger.error("adRequestId is empty or not a string")
+            return False
+            
+        # Check for exactly one forward slash
+        if ad_request_id.count('/') != 1:
+            logger.error(f"adRequestId must contain exactly one forward slash: {ad_request_id}")
+            return False
+            
+        # Split into UUID and suffix parts
+        uuid_part, suffix = ad_request_id.split('/')
         
-        # Check required fields
-        for field, field_type in self.required_fields.items():
-            if field not in row:
-                logger.error(f"Missing required field: {field}")
-                return False
-            if pd.isna(row[field]):
-                logger.error(f"Required field is null: {field}")
-                return False
-            if not isinstance(row[field], field_type):
-                try:
-                    row[field] = field_type(row[field])
-                    logger.debug(f"Converted {field} to {field_type.__name__}")
-                except (ValueError, TypeError) as e:
-                    logger.error(f"Invalid type for field {field}: {type(row[field])}, Error: {str(e)}")
-                    return False
-        
-        # Check optional fields if present
-        for field, field_type in self.optional_fields.items():
-            if field in row and not pd.isna(row[field]):
-                if not isinstance(row[field], field_type):
-                    try:
-                        row[field] = field_type(row[field])
-                        logger.debug(f"Converted {field} to {field_type.__name__}")
-                    except (ValueError, TypeError) as e:
-                        logger.error(f"Invalid type for optional field {field}: {type(row[field])}, Error: {str(e)}")
-                        return False
-        
-        logger.debug("Row validation successful")
+        # Validate UUID part
+        if len(uuid_part) < 8:
+            logger.error(f"UUID part must be at least 8 characters: {uuid_part}")
+            return False
+            
+        # Validate suffix
+        if not suffix:
+            logger.error("Suffix part is empty")
+            return False
+            
+        # Check suffix for valid characters
+        valid_chars = set('abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_')
+        if not all(c in valid_chars for c in suffix):
+            logger.error(f"Suffix contains invalid characters: {suffix}")
+            return False
+            
         return True
     
     def transform_row(self, row: pd.Series) -> Optional[Dict[str, Any]]:
@@ -146,33 +302,30 @@ class DataTransformer:
         """
         logger.debug(f"Transforming row: {row.to_dict()}")
         
+        # Check for required fields
+        if 'creative_id' not in row or row['creative_id'] is None:
+            logger.warning("Skipping row due to missing or null creative_id")
+            return None
+        if 'ad_tag' not in row or row['ad_tag'] is None:
+            logger.error("Required field is null: ad_tag")
+            return None
+        
         if not self.validate_row(row):
             logger.warning("Row validation failed, skipping transformation")
             return None
-            
+        
         try:
-            # Create base payload with required fields and defaults
+            # Use snake_case keys for output
             transformed = {
-                'adTag': str(row.get('ad_tag', '')),  # Default to empty string if missing
-                'campaign_id': str(row.get('campaign_id', '')),  # Default to empty string if missing
-                'adItemId': int(row['ad_item_id']) if not pd.isna(row.get('ad_item_id')) else None,
-                'adType': str(row.get('ad_type', 'Display')),  # Default to 'Display' if missing
-                'creativeId': int(row['creative_id']) if not pd.isna(row.get('creative_id')) else None,
-                'customerId': str(row.get('campaign_id', '')),  # Use campaign_id as customerId for API
-                'payload': {
-                    'sessionId': f"session_{row.get('campaign_id', '')}_{row.get('ad_item_id', '')}" if not pd.isna(row.get('ad_item_id')) else None,
-                    'sessionExpiry': str(int(time.time()) + 3600)  # 1 hour from now
-                }
+                'campaign_id': str(row.get('campaign_id', '')),
+                'ad_item_id': int(row['ad_item_id']) if not pd.isna(row.get('ad_item_id')) else None,
+                'ad_tag': str(row.get('ad_tag', '')),
+                'ad_type': str(row.get('ad_type', 'Display')),
+                'creative_id': int(row['creative_id']),
+                'page_category_ids': self.parse_category_ids(row.get('ad_item_categories', '{}'))
             }
-            
-            # Add category IDs if present
-            if 'ad_item_categories' in row and not pd.isna(row['ad_item_categories']):
-                transformed['pageCategoryIds'] = self.parse_category_ids(row['ad_item_categories'])
-            
             # Remove None values and empty strings
             transformed = {k: v for k, v in transformed.items() if v is not None and v != ''}
-            transformed['payload'] = {k: v for k, v in transformed['payload'].items() if v is not None and v != ''}
-            
             logger.debug(f"Successfully transformed row: {json.dumps(transformed)}")
             return transformed
         except Exception as e:
@@ -213,4 +366,75 @@ class DataTransformer:
         logger.info(f"Transformation complete. {len(transformed_rows)} valid rows, {invalid_rows} invalid rows")
         if invalid_rows > 0:
             logger.warning(f"Found {invalid_rows} invalid rows during transformation")
-        return result_df 
+        return result_df
+
+    def transform(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
+        """
+        Transform the input DataFrame into a list of dictionaries.
+        Args:
+            df (pd.DataFrame): Input DataFrame
+        Returns:
+            List[Dict[str, Any]]: Transformed data
+        """
+        logger.info(f"Starting transformation of dataframe with {len(df)} rows")
+        transformed_data = []
+        invalid_rows = 0
+        
+        for index, row in df.iterrows():
+            try:
+                # Check for required fields
+                if pd.isna(row.get('creative_id')) or pd.isna(row.get('ad_tag')):
+                    logger.warning(f"Skipping row due to missing or null creative_id or ad_tag")
+                    logger.warning(f"Row {index} failed validation")
+                    invalid_rows += 1
+                    continue
+                
+                # Convert creative_id to integer, handling NaN values
+                try:
+                    creative_id = int(row['creative_id'])
+                except (ValueError, TypeError):
+                    logger.warning(f"Invalid creative_id value in row {index}: {row['creative_id']}")
+                    invalid_rows += 1
+                    continue
+                
+                # Create transformed row with consistent column names
+                transformed_row = {
+                    'campaign_id': str(row['campaign_id']),
+                    'ad_item_id': str(row['ad_item_id']),
+                    'ad_tag': str(row['ad_tag']),
+                    'ad_type': str(row['ad_type']),
+                    'creative_id': creative_id,
+                    'page_category_ids': self.parse_category_ids(row.get('ad_item_categories', '{}'))
+                }
+                
+                transformed_data.append(transformed_row)
+                
+            except Exception as e:
+                logger.error(f"Error transforming row {index}: {str(e)}")
+                invalid_rows += 1
+                continue
+        
+        logger.info(f"Transformation complete. {len(transformed_data)} valid rows, {invalid_rows} invalid rows")
+        if invalid_rows > 0:
+            logger.warning(f"Found {invalid_rows} invalid rows during transformation")
+            
+        return transformed_data 
+
+if __name__ == "__main__":
+    import sys
+    from click_ninja_army.core.database import Database
+
+    if len(sys.argv) != 2:
+        print("Usage: python data_transformer.py <csv_file>")
+        sys.exit(1)
+
+    csv_file = sys.argv[1]
+    db = Database("click_ninja.db")
+    db.connect()
+    transformer = DataTransformer(db)
+    success = transformer.process_csv(csv_file)
+    if success:
+        print("CSV processing completed successfully.")
+    else:
+        print("CSV processing failed.")
+    db.close() 

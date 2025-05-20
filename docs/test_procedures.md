@@ -2,13 +2,13 @@
 
 ## Pre-Test Checklist
 
-- [ ] Verify API token is valid (set in `config.py`)
-- [ ] Ensure database directory is writable (default: `click_ninja.db` in project root)
-- [ ] Prepare test CSV files (e.g., `campaign_12476_DEV.csv`)
-- [ ] Set up log directory (should be created automatically by the system)
-- [ ] Verify rate limits with server team (configured in `config.py`)
-- [ ] Document test scenarios (see below)
-- [ ] Set up monitoring for test runs (log files, error alerts)
+- [✅] Verify API token is valid (set in `config.py`)
+- [✅] Ensure database directory is writable (default: `click_ninja.db` in project root)
+- [✅] Prepare test CSV files (e.g., `campaign_12476_DEV.csv`)
+- [✅] Set up log directory (should be created automatically by the system)
+- [✅] Verify rate limits with server team (configured in `config.py`)
+- [✅] Document test scenarios (see below)
+- [✅] Set up monitoring for test runs (log files, error alerts)
 
 ---
 

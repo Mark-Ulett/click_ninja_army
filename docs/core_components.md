@@ -64,117 +64,96 @@ db.update_request_status('request_123', 'completed')
 - `request_pool`: Stores request data
 - `operation_log`: Tracks operation history
 
-## Request Generator (`core/request_generator.py`)
+## Scout Ninja (`core/scout_ninja.py`)
 
-The Request Generator creates API-compatible requests from validated data.
+The Scout Ninja handles parallel request generation with rate limiting and retry mechanisms.
 
 ### Key Responsibilities
-- Generates API request payloads
-- Handles different ad types
-- Manages request formatting
-- Validates request structure
-- Handles API communication
+- Generates ad requests in parallel
+- Implements rate limiting per API endpoint
+- Manages priority-based request queuing
+- Handles automatic retry mechanism
+- Tracks request generation progress
+- Provides comprehensive error handling
 
 ### Usage Example
 ```python
-from click_ninja_army.core.request_generator import RequestGenerator
+from click_ninja_army.core.scout_ninja import ScoutNinja, RequestConfig
 from click_ninja_army.config.config import config
 
-generator = RequestGenerator(config)
+# Configure request generation
+request_config = RequestConfig(
+    api_url='https://api.example.com',
+    api_token='your_token',
+    rate_limit=10,
+    burst_limit=5
+)
 
-# Generate both impressions and clicks for each ad
-row = {
-    'adTag': 'example-tag',
-    'adItemId': 123,
-    'adType': 'Display',
-    'campaign_id': 'camp_001',
-    # ... other required fields ...
-}
-for op_type in ['impression', 'click']:
-    row['operation_type'] = op_type
-    generator.generate_request(row)
-```
+# Initialize Scout Ninja
+scout = ScoutNinja(request_config, db, metrics_manager)
 
-### Supported Ad Types
-- Display
-- Video
-- Native (Fixed/Dynamic)
-- Product
-
-## Worker Pool (`core/worker_pool.py`)
-
-The Worker Pool manages concurrent processing of requests.
-
-### Key Responsibilities
-- Manages worker threads
-- Distributes tasks
-- Controls resource usage
-- Handles worker lifecycle
-- Provides task queuing
-
-### Usage Example
-```python
-from click_ninja_army.core.worker_pool import WorkerPool
-
-pool = WorkerPool(max_workers=10)
-
-# Submit task
-pool.submit_task(task_function, task_data)
+# Start request generation
+scout.start()
+scout.generate_requests(entries, priority=1)
 ```
 
 ### Configuration Options
-- `max_workers`: Maximum number of worker threads
-- `queue_size`: Maximum task queue size
-- `timeout`: Task timeout in seconds
-
-## Scout (`core/scout.py`)
-
-The Scout monitors system performance and health.
-
-### Key Responsibilities
-- Tracks request metrics
-- Monitors system performance
-- Provides real-time insights
-- Manages system health
-- Generates performance reports
-
-### Usage Example
-```python
-from click_ninja_army.core.scout import Scout
-
-scout = Scout(metrics_interval=60)
-scout.start_monitoring()
-```
-
-### Monitored Metrics
-- Request success rate
-- Processing time
-- Error rates
-- Resource utilization
-
-## Strike (`core/strike.py`)
-
-The Strike executes ad requests and handles retries.
-
-### Key Responsibilities
-- Executes API requests
-- Manages retry logic
-- Handles error recovery
-- Tracks execution status
-- Provides execution reports
-
-### Usage Example
-```python
-from click_ninja_army.core.strike import Strike
-
-strike = Strike(max_retries=3)
-result = strike.execute_request(request_data)
-```
-
-### Configuration Options
+- `rate_limit`: Requests per second
+- `burst_limit`: Maximum burst size
 - `max_retries`: Maximum retry attempts
 - `retry_delay`: Delay between retries
 - `timeout`: Request timeout
+
+## Strike Ninja (`core/strike_ninja.py`)
+
+The Strike Ninja handles parallel impression and click processing with separate worker pools and rate limiting.
+
+### Key Responsibilities
+- Processes impressions and clicks in parallel
+- Manages separate worker pools for each operation type
+- Implements rate limiting per operation
+- Handles operation queuing
+- Tracks success/failure metrics
+- Provides performance metrics per ad item
+
+### Usage Example
+```python
+from click_ninja_army.core.strike_ninja import StrikeNinja, OperationConfig, WorkerPoolConfig
+from click_ninja_army.config.config import config
+
+# Configure operation settings
+operation_config = OperationConfig(
+    impression_url='https://api.example.com/impression',
+    click_url='https://api.example.com/click',
+    api_token='your_token',
+    impression_rate_limit=10,
+    click_rate_limit=5,
+    impression_burst=5,
+    click_burst=3
+)
+
+# Initialize Strike Ninja
+strike = StrikeNinja(operation_config, db, metrics_manager)
+
+# Start processing
+strike.start()
+strike.queue_impression(entry, priority=1)
+strike.queue_click(entry, priority=1)
+```
+
+### Configuration Options
+- `impression_rate_limit`: Impressions per second
+- `click_rate_limit`: Clicks per second
+- `impression_burst`: Maximum impression burst
+- `click_burst`: Maximum click burst
+- `max_retries`: Maximum retry attempts
+- `retry_delay`: Delay between retries
+
+### Worker Pool Configuration
+- Separate configurations for impression and click workers
+- Configurable worker counts and queue sizes
+- Automatic worker pool adjustment based on load
+- Health monitoring and worker rotation
 
 ## Coordinator (`core/coordinator.py`)
 
@@ -251,4 +230,3 @@ All configuration is centralized in `click_ninja_army/config/config.py`. **There
    - Sanitize database queries
    - Secure API communication
    - Monitor access patterns
-```
